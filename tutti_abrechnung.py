@@ -79,7 +79,9 @@ def norm(name):
     s = " ".join(s.lower().split())
     for tag in ("mitarbeiter", "personal", "gratis", "(ma)", "ma:"):
         s = s.replace(tag, " ")
-    return " ".join(s.replace("(", " ").replace(")", " ").split())
+    s = " ".join(s.replace("(", " ").replace(")", " ").split())
+    # Reihenfolge-unabhaengig: "Alkoholfrei Lager 3dl" == "Lager Alkoholfrei 3dl"
+    return " ".join(sorted(s.split()))
 
 
 def parse_iso(s):
