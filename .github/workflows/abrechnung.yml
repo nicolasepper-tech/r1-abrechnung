@@ -1,0 +1,63 @@
+name: R1 Abrechnung Automatik
+
+on:
+  schedule:
+    # Stuendlich zur Minute 20 (UTC). 4h-Stille-Erkennung braucht keine
+    # engere Taktung; die Abrechnung kommt max. ~1h nach Event-Ende.
+    - cron: "20 * * * *"
+  workflow_dispatch: {}   # Manuell ausloesbar unter Actions -> Run workflow
+
+permissions:
+  contents: write         # damit der Workflow auto_state.json committen darf
+
+concurrency:
+  group: abrechnung
+  cancel-in-progress: false
+
+jobs:
+  abrechnung:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Pakete installieren
+        run: pip install -r requirements.txt
+
+      - name: Abrechnungs-Status wiederherstellen
+        run: |
+          mkdir -p out
+          cp state/auto_state.json out/auto_state.json 2>/dev/null || true
+
+      - name: Auto-Abrechnung ausfuehren
+        env:
+          SUMUP_API_KEY: ${{ secrets.SUMUP_API_KEY }}
+          MAIL_USER: ${{ secrets.MAIL_USER }}
+          MAIL_APP_PASSWORD: ${{ secrets.MAIL_APP_PASSWORD }}
+          MAIL_TO: ${{ secrets.MAIL_TO }}
+        run: python tutti_abrechnung.py --auto --out out
+
+      - name: Abrechnungs-Status speichern (merkt sich abgerechnete Events)
+        run: |
+          git config user.name "abrechnung-bot"
+          git config user.email "actions@github.com"
+          mkdir -p state
+          cp out/auto_state.json state/auto_state.json 2>/dev/null || true
+          if [ -f state/auto_state.json ]; then
+            git add state/auto_state.json
+            git diff --cached --quiet || git commit -m "State: abgerechnete Events aktualisiert"
+            git push
+          fi
+
+      - name: Abrechnungsdateien als Artefakt sichern (Backup, 90 Tage)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: abrechnungen-${{ github.run_id }}
+          path: out/
+          if-no-files-found: ignore
+          retention-days: 90
