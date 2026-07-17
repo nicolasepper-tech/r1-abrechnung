@@ -197,12 +197,18 @@ def fetch_transactions(s, von, bis):
         batch = data.get("items", data if isinstance(data, list) else [])
         items.extend(batch)
         seen += len(batch)
-        # naechste Seite via links[rel=next]
+        # naechste Seite via links[rel=next]. SumUp liefert href meist nur als
+        # Query-String ("limit=100&oldest_ref=..."), nicht als volle URL.
         nxt = None
         for link in data.get("links", []) if isinstance(data, dict) else []:
             if link.get("rel") == "next":
                 href = link.get("href", "")
-                nxt = href if href.startswith("http") else API_BASE + href
+                if href.startswith("http"):
+                    nxt = href
+                elif href.startswith("/"):
+                    nxt = API_BASE + href
+                elif href:
+                    nxt = EP_TX_HISTORY + "?" + href.lstrip("?")
         url, params = nxt, None
         if seen > 50000:  # Sicherheitsbremse
             break
