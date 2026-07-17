@@ -1,34 +1,39 @@
 produkt,ek,ek_basis,zuschlag_%
-Amber,1.75,1.70,3
-Bschorle,1.33,1.29,3
-Lager 3dl,1.14,1.01,13
-Lager 5dl,1.90,1.68,13
-Lager Alkoholfrei 3dl,1.11,0.98,13
-Lager Alkoholfrei 5dl,1.85,1.64,13
-Picon,0.44,0.43,3
-Mineral 1l,1.71,1.58,8
-Mineral 3dl,0.51,0.47,8
-Mineral 5dl,0.85,0.79,8
-Berliner Luft,0.44,0.43,3
-Tequila,0.67,0.65,3
-Vodka,0.63,0.61,3
-Citro,0.43,0.40,8
-El Tony Mate,1.60,1.55,3
-El Tony Mate Zero,1.60,1.55,3
-Global Cola,1.19,1.16,3
-Goba Cola Zero,1.19,1.16,3
-Tonic Water 3dl,0.94,0.87,8
-Weisswein,0.74,0.67,10
-Rotwein,0.29,0.26,10
-Prosecco,1.21,1.10,10
-Aperol Spritz,1.56,1.44,8
-Gin Tonic,1.98,1.83,8
-Vodka Mate,2.12,1.96,8
-Vodka Soda,1.70,1.57,8
-Gespritzter Weisser,1.32,1.20,10
-Tinto de Verano,0.65,0.59,10
-Whiskey Sour,2.75,2.55,8
-Gin Sour,2.30,2.13,8
-Vodka Sour,2.16,2.00,8
-Amaretto Sour,1.91,1.77,8
-Aperol Sour,1.24,1.15,8
+Amber,1.95,1.70,15
+Bschorle,1.48,1.29,15
+Lager 3dl,1.16,1.01,15
+Lager 5dl,1.93,1.68,15
+Lager Alkoholfrei 3dl,1.13,0.98,15
+Lager Alkoholfrei 5dl,1.89,1.64,15
+Picon,0.62,0.54,15
+Mineral 1l,1.82,1.58,15
+Mineral 3dl,0.54,0.47,15
+Mineral 5dl,0.91,0.79,15
+Berliner Luft,0.49,0.43,15
+Tequila,0.75,0.65,15
+Vodka,0.70,0.61,15
+Citro,0.46,0.40,15
+El Tony Mate,1.78,1.55,15
+El Tony Mate Zero,1.78,1.55,15
+Global Cola,1.33,1.16,15
+Goba Cola Zero,1.33,1.16,15
+Tonic Water 3dl,1.00,0.87,15
+Weisswein,0.77,0.67,15
+Rotwein,0.30,0.26,15
+Prosecco,1.26,1.10,15
+Aperol Spritz,1.66,1.44,15
+Gin Tonic,2.10,1.83,15
+Vodka Mate,2.25,1.96,15
+Vodka Soda,1.81,1.57,15
+Gespritzter Weisser,1.38,1.20,15
+Tinto de Verano,0.68,0.59,15
+Whiskey Sour,2.93,2.55,15
+Gin Sour,2.45,2.13,15
+Vodka Sour,2.30,2.00,15
+Amaretto Sour,2.04,1.77,15
+Aperol Sour,1.32,1.15,15
+Panache 3dl,0.80,0.70,15
+Panache 5dl,1.35,1.17,15
+Campari Soda,1.31,1.14,15
+Alkoholfreier Spritz,0.92,0.80,15
+Picon gross,0.99,0.86,15
