@@ -1,20 +1,20 @@
 name: R1 Abrechnung Automatik
 
-# Selbst-ausloesender Zeitplan: Jeder Lauf stoesst am Ende den naechsten in ~15 Min an.
-# WICHTIG: Nur fuer OEFFENTLICHE Repos gedacht (dort sind Actions-Minuten unbegrenzt).
-# Bei privatem Repo wuerde die 15-Min-Schleife das kostenlose Minutenkontingent sprengen
-# -> dann stattdessen den externen Ping (cron-job.org) nutzen.
+# Kontrolle alle ~1-2 Stunden. Hintergrund: GitHub fuehrt Zeitplaene bei kleinen
+# Repos unzuverlaessig aus und laesst besonders die "runden" Zeiten (:00) oft aus.
+# Darum fragen wir alle 30 Min zu krummen Minuten an - ein Teil davon faellt aus,
+# der Rest ergibt zuverlaessig einen Lauf alle 1-2 Stunden.
+# Verbrauch: ~20s pro Lauf, also gut innerhalb des kostenlosen Kontingents.
 
 on:
   schedule:
-    - cron: "20 * * * *"        # Zuend-/Notfallplan (startet die Kette neu, falls sie abreisst)
+    - cron: "7,37 * * * *"       # alle 30 Min, bewusst nicht zur vollen Stunde
   workflow_dispatch: {}          # Manuell startbar unter Actions -> Run workflow
-  repository_dispatch:           # Selbst-Ausloeser (der Workflow triggert sich hierueber neu)
+  repository_dispatch:           # Optionaler externer Ausloeser (z.B. cron-job.org)
     types: [abrechnung]
 
 permissions:
-  contents: write                # State committen
-  actions: write                 # sich selbst neu anstossen duerfen
+  contents: write                # damit der Workflow auto_state.json committen darf
 
 concurrency:
   group: abrechnung
@@ -23,7 +23,7 @@ concurrency:
 jobs:
   abrechnung:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
 
@@ -47,7 +47,7 @@ jobs:
           MAIL_TO: ${{ secrets.MAIL_TO }}
         run: python tutti_abrechnung.py --auto --out out
 
-      - name: Abrechnungs-Status speichern
+      - name: Abrechnungs-Status speichern (merkt sich abgerechnete Events)
         run: |
           git config user.name "abrechnung-bot"
           git config user.email "actions@github.com"
@@ -59,6 +59,18 @@ jobs:
             git push
           fi
 
+      # Haelt das Repo "aktiv": GitHub deaktiviert Zeitplaene nach 60 Tagen ohne
+      # Aktivitaet. Ein woechentlicher Mini-Commit verhindert das zuverlaessig.
+      - name: Repo aktiv halten (Heartbeat, montags)
+        if: always()
+        run: |
+          if [ "$(date -u +%u)" = "1" ]; then
+            mkdir -p state
+            date -u +"letzter Heartbeat: %Y-%m-%d" > state/heartbeat.txt
+            git add state/heartbeat.txt
+            git diff --cached --quiet || (git commit -m "Heartbeat" && git push)
+          fi
+
       - name: Abrechnungsdateien als Artefakt sichern (Backup, 90 Tage)
         if: always()
         uses: actions/upload-artifact@v4
@@ -67,13 +79,3 @@ jobs:
           path: out/
           if-no-files-found: ignore
           retention-days: 90
-
-      # Kette am Leben halten: nach ~15 Min den naechsten Lauf selbst ausloesen.
-      # Laeuft auch, wenn oben etwas schiefging (if: always), damit die Kette nicht abreisst.
-      - name: Naechsten Lauf in ~15 Min einplanen
-        if: always()
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          sleep 900
-          gh api repos/${{ github.repository }}/dispatches -f event_type=abrechnung
