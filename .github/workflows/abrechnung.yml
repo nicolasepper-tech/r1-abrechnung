@@ -1,14 +1,20 @@
 name: R1 Abrechnung Automatik
 
+# Selbst-ausloesender Zeitplan: Jeder Lauf stoesst am Ende den naechsten in ~15 Min an.
+# WICHTIG: Nur fuer OEFFENTLICHE Repos gedacht (dort sind Actions-Minuten unbegrenzt).
+# Bei privatem Repo wuerde die 15-Min-Schleife das kostenlose Minutenkontingent sprengen
+# -> dann stattdessen den externen Ping (cron-job.org) nutzen.
+
 on:
   schedule:
-    # Stuendlich zur Minute 20 (UTC). 4h-Stille-Erkennung braucht keine
-    # engere Taktung; die Abrechnung kommt max. ~1h nach Event-Ende.
-    - cron: "20 * * * *"
-  workflow_dispatch: {}   # Manuell ausloesbar unter Actions -> Run workflow
+    - cron: "20 * * * *"        # Zuend-/Notfallplan (startet die Kette neu, falls sie abreisst)
+  workflow_dispatch: {}          # Manuell startbar unter Actions -> Run workflow
+  repository_dispatch:           # Selbst-Ausloeser (der Workflow triggert sich hierueber neu)
+    types: [abrechnung]
 
 permissions:
-  contents: write         # damit der Workflow auto_state.json committen darf
+  contents: write                # State committen
+  actions: write                 # sich selbst neu anstossen duerfen
 
 concurrency:
   group: abrechnung
@@ -17,7 +23,7 @@ concurrency:
 jobs:
   abrechnung:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
 
@@ -41,7 +47,7 @@ jobs:
           MAIL_TO: ${{ secrets.MAIL_TO }}
         run: python tutti_abrechnung.py --auto --out out
 
-      - name: Abrechnungs-Status speichern (merkt sich abgerechnete Events)
+      - name: Abrechnungs-Status speichern
         run: |
           git config user.name "abrechnung-bot"
           git config user.email "actions@github.com"
@@ -61,3 +67,13 @@ jobs:
           path: out/
           if-no-files-found: ignore
           retention-days: 90
+
+      # Kette am Leben halten: nach ~15 Min den naechsten Lauf selbst ausloesen.
+      # Laeuft auch, wenn oben etwas schiefging (if: always), damit die Kette nicht abreisst.
+      - name: Naechsten Lauf in ~15 Min einplanen
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          sleep 900
+          gh api repos/${{ github.repository }}/dispatches -f event_type=abrechnung
