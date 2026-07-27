@@ -298,28 +298,32 @@ def compute(transactions, receipts_fn, ek, twint, rate=0.13):
         else:
             cash_total += sign * amt  # unbekannt -> zu Bargeld(+TWINT)
 
-        for it in receipts_fn(tx):
-            key = norm(it["name"])
+        items = receipts_fn(tx)
+        for it in items:
+            is_free = (float(it.get("price") or 0) == 0)
+            key = (norm(it["name"]), is_free)
             if key not in products:
                 products[key] = {"name": it["name"], "qty": 0.0}
             products[key]["qty"] += sign * it["quantity"]
-        if not receipts_fn(tx):
+        if not items:
             no_items += 1
 
-    # EK je Produkt zuordnen
+    # EK je Produkt zuordnen (Gratis-/Mitarbeiter-Items als eigene Zeile)
     rows, unknown = [], []
     getraenkeschuld = 0.0
-    for key, p in sorted(products.items(), key=lambda kv: kv[1]["name"].lower()):
-        disp, ekval = ek.get(key, (p["name"], None))
+    for (nkey, is_free), p in sorted(products.items(),
+                                     key=lambda kv: (kv[0][1], kv[1]["name"].lower())):
+        disp, ekval = ek.get(nkey, (p["name"], None))
+        label = f"{disp} (gratis/MA)" if is_free else disp
         qty = round(p["qty"], 3)
         if ekval is None:
-            unknown.append(p["name"])
+            unknown.append(label)
             line = 0.0
-            rows.append({"name": p["name"], "qty": qty, "ek": None, "line": line, "unknown": True})
+            rows.append({"name": label, "qty": qty, "ek": None, "line": line, "unknown": True})
         else:
             line = round(qty * ekval, 2)
             getraenkeschuld += line
-            rows.append({"name": disp, "qty": qty, "ek": ekval, "line": line, "unknown": False})
+            rows.append({"name": label, "qty": qty, "ek": ekval, "line": line, "unknown": False})
 
     umsatz = round(umsatz, 2)
     card_total = round(card_total, 2)
@@ -752,8 +756,14 @@ def eventblatt_values(res, cfg, ticket_netto=0.0, event_date=None):
     sumup_rate = float(eb.get("sumup_fee_rate", 0.025))
     twint_rate = float(eb.get("twint_fee_rate", 0.013))
 
-    sumup_brutto = res["card_total"]                 # Karte via SumUp
-    twint_brutto = res["cash_total"]                 # bar getippt = TWINT (kein Bargeld moeglich)
+    if cfg.get("_card_only"):
+        # Nachhol-Modus fuer Alt-Events: vor dem Bargeld-Knopf lief nichts als
+        # TWINT/bar ueber SumUp -> alles als Karte werten, keine TWINT-Gebuehr.
+        sumup_brutto = res["card_total"] + res["cash_total"]
+        twint_brutto = 0.0
+    else:
+        sumup_brutto = res["card_total"]                 # Karte via SumUp
+        twint_brutto = res["cash_total"]                 # bar getippt = TWINT
     sumup_geb = round(sumup_brutto * sumup_rate, 2)
     twint_geb = round(twint_brutto * twint_rate, 2)
     sumup_netto = round(sumup_brutto - sumup_geb, 2)
@@ -942,6 +952,60 @@ def mail_body(event_name, res, zahlen):
     return "\n".join(lines)
 
 
+def catchup_run(args, cfg):
+    """Einmalige Nachhol-Abrechnung fuer einen festen Zeitraum (--von/--bis).
+
+    Erkennt alle Events darin (4h-Stille-Clustering) und mailt jedes einzeln.
+    Mit --card-only wird alles als Karte gewertet (fuer Alt-Events ohne TWINT)."""
+    api_key = cfg.get("sumup_api_key") or os.environ.get("SUMUP_API_KEY")
+    if not api_key:
+        raise SystemExit("SumUp API-Key fehlt (config.json -> sumup_api_key "
+                         "oder Umgebungsvariable SUMUP_API_KEY).")
+    if not (args.von and args.bis):
+        raise SystemExit("--catchup braucht --von und --bis (z.B. "
+                         "--von 2026-06-30T00:00:00+02:00 --bis 2026-07-20T00:00:00+02:00).")
+    s = _session(api_key)
+    mid = get_merchant_code(s, cfg)
+    ek = load_ek_prices(args.ek)
+    gap = float((cfg.get("auto") or {}).get("gap_hours", 4))
+    if args.card_only:
+        cfg = dict(cfg); cfg["_card_only"] = True
+
+    von, bis = parse_iso(args.von), parse_iso(args.bis)
+    print(f"Nachhol-Abrechnung {von:%d.%m.%Y} – {bis:%d.%m.%Y}"
+          f"{'  (alles als Karte)' if args.card_only else ''}")
+    tx = fetch_transactions(s, von, bis)
+    events = cluster_events(tx, gap_hours=gap)
+    print(f"{len(tx)} Transaktionen, {len(events)} Event(s) erkannt.\n")
+
+    for ev in events:
+        first_t, last_t = ev[0][0], ev[-1][0]
+        lokal = first_t.astimezone()
+        name = f"Event_{lokal:%Y-%m-%d}"
+        print(f"→ {name}: {first_t.astimezone():%d.%m %H:%M} – "
+              f"{last_t.astimezone():%H:%M}  ({len(ev)} Transaktionen)")
+        ev_tx = [t for _, t in ev]
+        twint = {"total": 0.0, "count": 0, "note": "Nachhol-Abrechnung"}
+        receipts_fn = lambda t: fetch_receipt_items(s, mid, t)
+        res, zahlen, paths = run_event(
+            ev_tx, receipts_fn, ek, twint, cfg, name,
+            first_t.astimezone().isoformat(), last_t.astimezone().isoformat(),
+            args.out, args.rate, event_date=lokal)
+        print(f"   Umsatz {res['umsatz']:.2f} | Auszahlung "
+              f"{(zahlen or {}).get('auszahlung', 0):.2f}")
+        if args.no_mail:
+            continue
+        try:
+            send_mail(cfg, f"R1 Nachhol-Abrechnung {name} – Auszahlung CHF "
+                           f"{(zahlen or {}).get('auszahlung', 0):.2f}",
+                      "NACHTRÄGLICHE ABRECHNUNG (Alt-Event)\n\n" + mail_body(name, res, zahlen),
+                      [paths["eventblatt"], paths["xlsx"], paths["pdf"]])
+            print(f"   ✉ Mail versendet an {(cfg.get('email') or {}).get('to')}")
+        except Exception as e:
+            print(f"   ⚠ Mailversand fehlgeschlagen: {e} (Dateien in {args.out})")
+    print("\nFertig.")
+
+
 def auto_run(args, cfg, once=True):
     """Prueft auf beendete Events (>=4h Stille) und rechnet neue automatisch ab."""
     api_key = cfg.get("sumup_api_key") or os.environ.get("SUMUP_API_KEY")
@@ -1032,6 +1096,12 @@ def main():
                     help="Wie --auto, aber als Dauerschleife (prüft alle 15 Min).")
     ap.add_argument("--lookback-hours", type=float, default=72,
                     help="Automatik: wie weit zurück nach Events gesucht wird (Default 72h).")
+    ap.add_argument("--catchup", action="store_true",
+                    help="Einmalige Nachhol-Abrechnung für --von/--bis (alle Events darin).")
+    ap.add_argument("--card-only", action="store_true",
+                    help="Catchup: alles als Karte werten (Alt-Events ohne TWINT/bar).")
+    ap.add_argument("--no-mail", action="store_true",
+                    help="Catchup: keine Mails senden, nur Dateien erzeugen.")
     args = ap.parse_args()
 
     cfg = load_config(args.config)
@@ -1051,6 +1121,10 @@ def main():
         print("✅ Verbindung OK")
         print("   Händler:", prof.get("company_name") or prof.get("legal_name") or "(unbekannt)")
         print("   merchant_code:", prof.get("merchant_code") or data.get("merchant_code") or "(nicht gefunden)")
+        return
+
+    if args.catchup:
+        catchup_run(args, cfg)
         return
 
     if args.auto or args.watch:
