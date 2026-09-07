@@ -1,41 +1,42 @@
 produkt,ek,ek_basis,zuschlag_%
-Amber,1.95,1.70,15
-Bschorle,1.48,1.29,15
-Lager 3dl,1.16,1.01,15
-Lager 5dl,1.93,1.68,15
-Lager Alkoholfrei 3dl,1.13,0.98,15
-Lager Alkoholfrei 5dl,1.89,1.64,15
-Picon,0.62,0.54,15
-Mineral 1l,1.82,1.58,15
-Mineral 3dl,0.54,0.47,15
-Mineral 5dl,0.91,0.79,15
-Berliner Luft,0.49,0.43,15
-Tequila,0.75,0.65,15
-Vodka,0.70,0.61,15
-Citro,0.46,0.40,15
-El Tony Mate,1.78,1.55,15
-El Tony Mate Zero,1.78,1.55,15
-Global Cola,1.33,1.16,15
-Goba Cola Zero,1.33,1.16,15
-Tonic Water 3dl,1.00,0.87,15
-Weisswein,0.77,0.67,15
-Rotwein,0.30,0.26,15
-Prosecco,1.26,1.10,15
-Aperol Spritz,1.66,1.44,15
-Gin Tonic,2.10,1.83,15
-Vodka Mate,2.25,1.96,15
-Vodka Soda,1.81,1.57,15
-Gespritzter Weisser,1.38,1.20,15
-Tinto de Verano,0.68,0.59,15
-Whiskey Sour,2.93,2.55,15
-Gin Sour,2.45,2.13,15
-Vodka Sour,2.30,2.00,15
-Amaretto Sour,2.04,1.77,15
-Aperol Sour,1.32,1.15,15
-Panache 3dl,0.80,0.70,15
-Panache 5dl,1.35,1.17,15
-Campari Soda,1.31,1.14,15
-Alkoholfreier Spritz,0.92,0.80,15
-Picon gross,0.99,0.86,15
-Whiskey Cola,2.31,2.01,15
-Rum Cola,2.16,1.88,15
+Amber,2.55,1.70,50
+Bschorle,1.94,1.29,50
+Lager 3dl,1.52,1.01,50
+Lager 5dl,2.52,1.68,50
+Lager Alkoholfrei 3dl,1.47,0.98,50
+Lager Alkoholfrei 5dl,2.46,1.64,50
+Picon,0.81,0.54,50
+Mineral 1l,2.37,1.58,50
+Mineral 3dl,0.70,0.47,50
+Mineral 5dl,1.19,0.79,50
+Berliner Luft,0.65,0.43,50
+Tequila,0.98,0.65,50
+Vodka,0.92,0.61,50
+Citro,0.60,0.40,50
+El Tony Mate,2.33,1.55,50
+El Tony Mate Zero,2.33,1.55,50
+Global Cola,1.74,1.16,50
+Goba Cola Zero,1.74,1.16,50
+Tonic Water 3dl,1.30,0.87,50
+Weisswein,1.01,0.67,50
+Rotwein,0.39,0.26,50
+Prosecco,1.65,1.10,50
+Aperol Spritz,2.16,1.44,50
+Gin Tonic,2.75,1.83,50
+Vodka Mate,2.94,1.96,50
+Vodka Soda,2.35,1.57,50
+Gespritzter Weisser,1.80,1.20,50
+Tinto de Verano,0.89,0.59,50
+Whiskey Sour,3.82,2.55,50
+Gin Sour,3.19,2.13,50
+Vodka Sour,3.00,2.00,50
+Amaretto Sour,2.66,1.77,50
+Aperol Sour,1.72,1.15,50
+Panache 3dl,1.05,0.70,50
+Panache 5dl,1.75,1.17,50
+Campari Soda,1.71,1.14,50
+Alkoholfreier Spritz,1.20,0.80,50
+Picon gross,1.29,0.86,50
+Whiskey Cola,3.01,2.01,50
+Rum Cola,2.82,1.88,50
+Campari Spritz,2.49,1.66,50
