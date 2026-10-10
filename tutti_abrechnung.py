@@ -90,6 +90,23 @@ def parse_iso(s):
     return dt.datetime.fromisoformat(s)
 
 
+def fmt_dt(s):
+    """ISO-Zeitstempel -> 'TT.MM.JJJJ, HH:MM Uhr' in Basler Zeit (Europe/Zurich).
+    Nicht-ISO-Werte (z.B. 'Demo') werden unveraendert zurueckgegeben."""
+    try:
+        d = dt.datetime.fromisoformat(str(s).strip().replace("Z", "+00:00"))
+    except (ValueError, TypeError):
+        return s
+    if d.tzinfo is None:
+        d = d.replace(tzinfo=dt.timezone.utc)
+    try:
+        from zoneinfo import ZoneInfo
+        d = d.astimezone(ZoneInfo("Europe/Zurich"))
+    except Exception:
+        d = d.astimezone()  # Fallback: System-Zeitzone
+    return d.strftime("%d.%m.%Y, %H:%M Uhr")
+
+
 def load_config(path):
     if not path or not os.path.exists(path):
         return {}
@@ -381,7 +398,7 @@ def write_excel(res, meta, path, zahlen=None):
 
     cell("A1", "Event-Abrechnung", title)
     cell("A2", meta["event"], bold)
-    cell("A3", f"Zeitraum: {meta['von']}  bis  {meta['bis']}", base)
+    cell("A3", f"Zeitraum: {fmt_dt(meta['von'])}  bis  {fmt_dt(meta['bis'])}", base)
     cell("A4", f"Erstellt: {meta['created']}   Transaktionen: {res['n_tx']}", base)
 
     r = 6
@@ -395,10 +412,10 @@ def write_excel(res, meta, path, zahlen=None):
     cell(f"D{r}", z.get("twint_brutto", res["cash_total"]), base, money, "right")
     twintb_row = r
     r += 1
-    cell(f"A{r}", "− SumUp-Gebühren (2.5%)")
+    cell(f"A{r}", f"− SumUp-Gebühren ({pct(z.get('sumup_rate', 0.01))})")
     cell(f"D{r}", -z.get("sumup_geb", 0), base, money, "right"); sgeb_row = r
     r += 1
-    cell(f"A{r}", "− TWINT-Gebühren (1.3%)")
+    cell(f"A{r}", f"− TWINT-Gebühren ({pct(z.get('twint_rate', 0.013))})")
     cell(f"D{r}", -z.get("twint_geb", 0), base, money, "right"); tgeb_row = r
     r += 1
     cell(f"A{r}", "Einnahmen netto", bold)
@@ -414,24 +431,31 @@ def write_excel(res, meta, path, zahlen=None):
     cell(f"A{r}", "Umsatzbeteiligungssatz"); cell(f"D{r}", res["rate"], base, "0.0%", "right")
     rate_row = r
     r += 1
-    cell(f"A{r}", "13% Umsatzbeteiligung", bold)
+    bet_lbl = (f"{pct(res['rate'])} Umsatzbeteiligung" if res.get("rate", 0) > 0
+               else "Umsatzbeteiligung (entfällt — privates Event)")
+    cell(f"A{r}", bet_lbl, bold)
     cell(f"D{r}", f"=D{umsatz_row}*D{rate_row}", bold, money, "right")
     beteiligung_row = r
     r += 1
     cell(f"A{r}", "Einkauf Getränke (Detail unten, inkl. Mitarbeiter/Gratis)", bold)
     ek_row_ref = r  # Formel wird nach der Detailtabelle gesetzt
     r += 1
-    cell(f"A{r}", "Miete (nach Wochentag)")
+    cell(f"A{r}", "Miete")
     cell(f"D{r}", z.get("miete", 0), base, money, "right"); miete_row = r
     r += 1
+    cell(f"A{r}", "Reinigung")
+    cell(f"D{r}", z.get("reinigung", 0), base, money, "right"); reinigung_row = r
+    r += 1
     cell(f"A{r}", "Total Abzüge", bold)
-    cell(f"D{r}", f"=D{beteiligung_row}+D{ek_row_ref}+D{miete_row}", bold, money, "right")
+    cell(f"D{r}", f"=D{beteiligung_row}+D{ek_row_ref}+D{miete_row}+D{reinigung_row}", bold, money, "right")
     abzuege_row = r
 
     r += 2
-    cell(f"A{r}", "3) ÜBERWEISUNG an die Nutzung (Reingewinn)", title)
+    ausz_lbl = ("3) NACHZAHLUNG der Nutzung an R1" if z.get("auszahlung", 0) < 0
+                else "3) ÜBERWEISUNG an die Nutzung (Reingewinn)")
+    cell(f"A{r}", ausz_lbl, title)
     cell(f"D{r}", f"=D{netto_row}-D{abzuege_row}", title, money, "right")
-    cell(f"A{r}", "3) ÜBERWEISUNG an die Nutzung (Reingewinn)", title).fill = PatternFill(
+    cell(f"A{r}", ausz_lbl, title).fill = PatternFill(
         "solid", start_color="DCFCE7")
     ws[f"D{r}"].fill = PatternFill("solid", start_color="DCFCE7")
 
@@ -523,7 +547,7 @@ def write_pdf(res, meta, path, zahlen=None):
     small = S("sm", fontName="Helvetica", fontSize=8, textColor=GREY, leading=11)
     smallR = S("smr", parent=small, alignment=TA_RIGHT)
 
-    doc = SimpleDocTemplate(path, pagesize=A4, topMargin=18*mm, bottomMargin=18*mm,
+    doc = SimpleDocTemplate(path, pagesize=A4, topMargin=16*mm, bottomMargin=14*mm,
                             leftMargin=18*mm, rightMargin=18*mm)
     W = doc.width
     el = []
@@ -558,14 +582,21 @@ def write_pdf(res, meta, path, zahlen=None):
     el += [head]
     el += rule(6, 10)
 
-    # ---- Event / Zeitraum -------------------------------------------------
+    # ---- Event / Zeitraum (nur wenn Kassendaten vorliegen) -----------------
+    if meta.get("von") and meta.get("bis"):
+        right = [Paragraph("ZEITRAUM", lblR),
+                 Paragraph(f"{fmt_dt(meta['von'])}<br/>bis {fmt_dt(meta['bis'])}", bodyR),
+                 Paragraph(f"Transaktionen: {res['n_tx']}", smallR)]
+    else:   # z.B. privates Event ohne Kassenbetrieb
+        right = [Paragraph("", lblR),
+                 Paragraph(meta.get("hinweis", "ohne Kassenbetrieb"), bodyR),
+                 Paragraph("", smallR)]
     meta_block = Table([[
-        Paragraph(meta["event"], big), Paragraph("ZEITRAUM", lblR),
+        Paragraph(meta["event"], big), right[0],
     ], [
-        Paragraph("", body),
-        Paragraph(f"{meta['von']}<br/>bis {meta['bis']}", bodyR),
+        Paragraph("", body), right[1],
     ], [
-        Paragraph("", body), Paragraph(f"Transaktionen: {res['n_tx']}", smallR),
+        Paragraph("", body), right[2],
     ]], colWidths=[W*0.5, W*0.5])
     meta_block.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP"),
                                     ("TOPPADDING", (0, 0), (-1, -1), 1),
@@ -580,36 +611,56 @@ def write_pdf(res, meta, path, zahlen=None):
         vs = bigR if (bold or sub) else bodyR
         return [Paragraph(desc, ds), Paragraph(amount, vs)]
 
-    rows_sum = [
-        [Paragraph("BESCHREIBUNG", label), Paragraph("BETRAG (CHF)", lblR)],
-        r_("Einnahmen R1-Konto — Karte (brutto)", chf(res["card_total"])),
-        r_("Einnahmen R1-Konto — TWINT (brutto)", chf(z.get("twint_brutto", res["cash_total"]))),
-        r_("SumUp-Gebühren (2.5%)", "− " + chf(z.get("sumup_geb", 0))),
-        r_("TWINT-Gebühren (1.3%)", "− " + chf(z.get("twint_geb", 0))),
-        r_("Einnahmen netto", chf(z.get("einnahmen", res["umsatz"])), sub=True),
-        r_(f"13% Umsatzbeteiligung (auf Umsatz {chf(res['umsatz'])})", "− " + chf(res["beteiligung"])),
+    # Ohne Kassenbetrieb (keine Einnahmen) entfallen Einnahmen-, Gebuehren- und
+    # Beteiligungszeilen komplett: das Dokument ist dann eine reine Kostenrechnung.
+    hat_einnahmen = (res["card_total"] or 0) > 0 or (res["cash_total"] or 0) > 0
+    rows_sum = [[Paragraph("BESCHREIBUNG", label), Paragraph("BETRAG (CHF)", lblR)]]
+    netto_idx = None
+    if hat_einnahmen:
+        if res.get("rate", 0) > 0:
+            bet_label = f"{pct(res['rate'])} Umsatzbeteiligung (auf Umsatz {chf(res['umsatz'])})"
+        else:
+            bet_label = "Umsatzbeteiligung (entfällt — privates Event)"
+        rows_sum += [
+            r_("Einnahmen R1-Konto — Karte (brutto)", chf(res["card_total"])),
+            r_("Einnahmen R1-Konto — TWINT (brutto)", chf(z.get("twint_brutto", res["cash_total"]))),
+            r_(f"SumUp-Gebühren ({pct(z.get('sumup_rate', 0.01))})", "− " + chf(z.get("sumup_geb", 0))),
+            r_(f"TWINT-Gebühren ({pct(z.get('twint_rate', 0.013))})", "− " + chf(z.get("twint_geb", 0))),
+            r_("Einnahmen netto", chf(z.get("einnahmen", res["umsatz"])), sub=True),
+            r_(bet_label, "− " + chf(res["beteiligung"])),
+        ]
+        netto_idx = 5
+    rows_sum += [
         r_("Einkauf Getränke (inkl. Mitarbeiter/Gratis)", "− " + chf(res["getraenkeschuld"])),
         r_("Miete", "− " + chf(z.get("miete", 0))),
     ]
+    if z.get("reinigung", 0):
+        rows_sum.append(r_("Reinigung", "− " + chf(z["reinigung"])))
     st = Table(rows_sum, colWidths=[W*0.72, W*0.28])
     n = len(rows_sum)
     style = [("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-             ("TOPPADDING", (0, 0), (-1, -1), 5), ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+             ("TOPPADDING", (0, 0), (-1, -1), 4), ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
              ("LINEBELOW", (0, 0), (-1, 0), 1, HAIR),          # unter Kopfzeile
-             ("LINEBELOW", (0, 5), (-1, 5), 1, HAIR),          # unter "Einnahmen netto"
              ("LINEABOVE", (0, 1), (-1, 1), 0, colors.white)]
+    if netto_idx is not None:
+        style.append(("LINEBELOW", (0, netto_idx), (-1, netto_idx), 1, HAIR))  # unter "Einnahmen netto"
     for i in range(1, n):
-        if i == 5:            # unter "Einnahmen netto" liegt bereits die blaue Linie
+        if i == netto_idx:
             continue
         style.append(("LINEBELOW", (0, i), (-1, i), 0.25, colors.HexColor("#D8D8E8")))
     st.setStyle(TableStyle(style))
     el += [st]
 
-    # TOTAL-Zeile (Ueberweisung) gross und blau, rechtsbuendig
-    total = Table([[Paragraph("ÜBERWEISUNG AN DIE NUTZUNG",
+    # TOTAL-Zeile: positiv = Ueberweisung an die Nutzung, negativ = Nachzahlung an R1
+    ausz = z.get("auszahlung", 0)
+    if ausz < 0:
+        tot_label, tot_val = "NACHZAHLUNG DER NUTZUNG AN R1", "CHF " + chf(-ausz)
+    else:
+        tot_label, tot_val = "ÜBERWEISUNG AN DIE NUTZUNG", "CHF " + chf(ausz)
+    total = Table([[Paragraph(tot_label,
                               S("tt", fontName="Helvetica-Bold", fontSize=11,
                                 textColor=colors.white)),
-                    Paragraph("CHF " + chf(z.get("auszahlung", 0)),
+                    Paragraph(tot_val,
                               S("tv", fontName="Helvetica-Bold", fontSize=13,
                                 textColor=colors.white, alignment=TA_RIGHT))]],
                   colWidths=[W*0.72, W*0.28])
@@ -622,7 +673,7 @@ def write_pdf(res, meta, path, zahlen=None):
     el += [Spacer(1, 2), total]
 
     # ---- Detail Getraenke-Einkauf ----------------------------------------
-    el += [Spacer(1, 16), Paragraph("DETAIL — GETRÄNKE-EINKAUF", label), Spacer(1, 4)]
+    el += [Spacer(1, 10), Paragraph("DETAIL — GETRÄNKE-EINKAUF", label), Spacer(1, 3)]
     data = [[Paragraph("PRODUKT", label), Paragraph("MENGE", lblR),
              Paragraph("EK / STK", lblR), Paragraph("BETRAG", lblR)]]
     for row in res["rows"]:
@@ -634,7 +685,7 @@ def write_pdf(res, meta, path, zahlen=None):
                  Paragraph("", bodyR), Paragraph(chf(res["getraenkeschuld"]), bigR)])
     dt = Table(data, colWidths=[W*0.58, W*0.14, W*0.14, W*0.14])
     dstyle = [("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-              ("TOPPADDING", (0, 0), (-1, -1), 4), ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+              ("TOPPADDING", (0, 0), (-1, -1), 2.5), ("BOTTOMPADDING", (0, 0), (-1, -1), 2.5),
               ("LINEBELOW", (0, 0), (-1, 0), 1, HAIR),
               ("LINEABOVE", (0, -1), (-1, -1), 1, HAIR)]
     for i in range(1, len(data) - 1):
@@ -686,6 +737,11 @@ def chf(x):
     if x is None or x == "":
         return ""
     return f"{float(x):,.2f}".replace(",", "'")
+
+
+def pct(rate):
+    """Rate -> sauberes Prozent-Label: 0.01 -> '1%', 0.025 -> '2.5%', 0.013 -> '1.3%'."""
+    return f"{round(float(rate) * 100, 4):g}%"
 
 
 def build_eventblatt_vorlage(path):
@@ -814,6 +870,17 @@ def fill_eventblatt(template_path, output_path, mapping):
     return output_path
 
 
+def reinigung_fuer_umsatz(umsatz):
+    """Reinigungspauschale gestaffelt nach Gesamtumsatz:
+    bis 1000 -> 50, ueber 1000 bis 2000 -> 100, ueber 2000 -> 150."""
+    u = float(umsatz or 0)
+    if u <= 1000:
+        return 50.0
+    if u <= 2000:
+        return 100.0
+    return 150.0
+
+
 def miete_fuer_datum(d):
     """Raummiete nach Wochentag des Eventstarts: So-Mi 50, Do 100, Fr+Sa 200."""
     wd = d.weekday()  # Mo=0 ... So=6
@@ -828,15 +895,17 @@ def eventblatt_values(res, cfg, ticket_netto=0.0, event_date=None):
     """Berechnet die Finanzwerte fuers Eventblatt aus dem Abrechnungs-Ergebnis.
 
     Gebuehren-Logik (Schaetzung, konfigurierbar):
-      - SumUp-Gebuehr auf alles, was mit Karte getippt wurde (Default 2.5%).
+      - SumUp-Gebuehr auf alles, was mit Karte getippt wurde (Default 1% = SumUp Pro).
       - TWINT-Gebuehr auf alles, was als 'Bargeld' getippt wurde (Default 1.3%),
         denn im R1-Workflow steht 'bar getippt' fuer TWINT-QR-Zahlungen.
         Liegt eine RaiseNow-CSV vor, wird stattdessen deren Total verwendet.
+      - Reinigung automatisch nach Umsatz (bis 1000: 50 / bis 2000: 100 / darueber: 150),
+        via config['eventblatt']['reinigung'] uebersteuerbar.
       - Miete automatisch nach Wochentag (So-Mi 50 / Do 100 / Fr+Sa 200),
         via config['eventblatt']['tagespauschale'] uebersteuerbar.
     """
     eb = (cfg.get("eventblatt") or {})
-    sumup_rate = float(eb.get("sumup_fee_rate", 0.025))
+    sumup_rate = float(eb.get("sumup_fee_rate", 0.01))   # SumUp Pro: 1%
     twint_rate = float(eb.get("twint_fee_rate", 0.013))
 
     if cfg.get("_card_only"):
@@ -858,6 +927,8 @@ def eventblatt_values(res, cfg, ticket_netto=0.0, event_date=None):
     if tagespauschale in (None, "") and event_date is not None:
         tagespauschale = miete_fuer_datum(event_date)
     reinigung = eb.get("reinigung")
+    if reinigung in (None, ""):          # Default: Staffel nach Umsatz
+        reinigung = reinigung_fuer_umsatz(res.get("umsatz", 0))
     abendverantwortung = eb.get("abendverantwortung")
 
     abzuege = umsatzbeteiligung + ek
@@ -889,8 +960,10 @@ def eventblatt_values(res, cfg, ticket_netto=0.0, event_date=None):
               "twint_geb": twint_geb, "twint_netto": twint_netto,
               "umsatzbeteiligung": umsatzbeteiligung, "ek": ek,
               "miete": float(tagespauschale or 0), "abzuege": abzuege,
+              "reinigung": float(reinigung or 0),
               "einnahmen": einnahmen, "auszahlung": auszahlung,
-              "ticket_netto": ticket_netto}
+              "ticket_netto": ticket_netto,
+              "sumup_rate": sumup_rate, "twint_rate": twint_rate}
     return mapping, zahlen
 
 
@@ -1012,26 +1085,32 @@ def mail_body(event_name, res, zahlen):
         f"  davon TWINT (bar getippt):     CHF {res['cash_total']:.2f}",
         "",
         "Abzüge:",
-        f"  13% Umsatzbeteiligung:         CHF {res['beteiligung']:.2f}",
+        (f"  {pct(res['rate'])} Umsatzbeteiligung:         CHF {res['beteiligung']:.2f}"
+         if res.get("rate", 0) > 0 else "  Umsatzbeteiligung: entfällt (privates Event)"),
         f"  Einkauf Getränke (inkl. Mitarbeiter/Gratis): CHF {res['getraenkeschuld']:.2f}",
     ]
     if z:
+        lines += [f"  Miete:                         CHF {z['miete']:.2f}"]
+        if z.get("reinigung", 0):
+            lines += [f"  Reinigung:                     CHF {z['reinigung']:.2f}"]
         lines += [
-            f"  Miete (nach Wochentag):        CHF {z['miete']:.2f}",
-            f"  SumUp-Gebühren (2.5% auf Karte): CHF {z['sumup_geb']:.2f}",
-            f"  TWINT-Gebühren (1.3% auf TWINT): CHF {z['twint_geb']:.2f}",
+            f"  SumUp-Gebühren ({pct(z.get('sumup_rate', 0.01))} auf Karte): CHF {z['sumup_geb']:.2f}",
+            f"  TWINT-Gebühren ({pct(z.get('twint_rate', 0.013))} auf TWINT): CHF {z['twint_geb']:.2f}",
             "",
             f"Einnahmen netto:                 CHF {z['einnahmen']:.2f}",
             f"Total Abzüge:                    CHF {z['abzuege']:.2f}",
-            f"ÜBERWEISUNG an euch (Reingewinn): CHF {z['auszahlung']:.2f}",
         ]
+        if z['auszahlung'] < 0:
+            lines += [f"NACHZAHLUNG von euch an R1:      CHF {-z['auszahlung']:.2f}"]
+        else:
+            lines += [f"ÜBERWEISUNG an euch (Reingewinn): CHF {z['auszahlung']:.2f}"]
     if res.get("unknown"):
         lines += ["", "Ohne EK-Abzug (Fremdkategorie): " + ", ".join(res["unknown"])]
     if res.get("no_items"):
         lines += [f"Hinweis: {res['no_items']} Transaktion(en) ohne Artikel "
                   f"(freier Betrag getippt) – ohne EK-Abzug."]
     lines += ["", "Details im angehängten Eventblatt (Word), Excel und PDF.",
-              "Gebührensätze: SumUp 2.5% auf Kartenzahlungen, TWINT 1.3%."]
+              f"Gebührensätze: SumUp {pct(z.get('sumup_rate', 0.01))} auf Kartenzahlungen, TWINT {pct(z.get('twint_rate', 0.013))}."]
     return "\n".join(lines)
 
 
@@ -1266,7 +1345,7 @@ def main():
     if res["unknown"]:
         print("  ohne EK-Abzug (Fremdkategorie):", ", ".join(res["unknown"]))
     if zahlen:
-        print(f"  Miete: {zahlen['miete']:.2f} | SumUp-Geb. {zahlen['sumup_geb']:.2f} | "
+        print(f"  Miete: {zahlen['miete']:.2f} | Reinigung: {zahlen.get('reinigung', 0):.2f} | SumUp-Geb. {zahlen['sumup_geb']:.2f} | "
               f"TWINT-Geb. {zahlen['twint_geb']:.2f}")
         print(f"  ÜBERWEISUNG an Nutzung: CHF {zahlen['auszahlung']:.2f}")
     print(f"\nGeschrieben:\n  {xlsx_path}\n  {pdf_path}")
